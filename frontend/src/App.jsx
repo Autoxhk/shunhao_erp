@@ -28,7 +28,6 @@ const emptyStats = {
   totalCustomers: 0,
   totalContracts: 0,
   totalAmount: 0,
-  topCustomers: [],
 }
 
 const navItems = [
@@ -77,6 +76,7 @@ const moneyFormatter = new Intl.NumberFormat('en-US', {
 
 const contractStatusOrder = ['completed', 'pending', 'abnormal']
 const CONTRACT_DETAIL_PAGE_SIZE = 100
+const ARRIVAL_ERROR_PAGE_SIZE = 50
 
 function formatNumber(value) {
   if (value === null || value === undefined || value === '') return '-'
@@ -113,6 +113,37 @@ function getContractItemStatus(item) {
   if (arrivalQuantity > quantity) return 'abnormal'
   if (arrivalQuantity === quantity) return 'completed'
   return 'pending'
+}
+
+function parseErrorFieldNames(errorFieldsText) {
+  const text = String(errorFieldsText || '').trim()
+  if (!text) return []
+  return text
+    .split(/、|,|，|\/|\|/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function normalizeErrorText(value) {
+  return String(value || '').replace(/\s+/g, '').trim()
+}
+
+function matchesArrivalErrorSelection(item, selectedFields) {
+  if (!selectedFields.length) return false
+
+  const rowFieldList = parseErrorFieldNames(item?.errorFields)
+  const rowFieldRaw = normalizeErrorText(item?.errorFields)
+  const actualMatchRaw = normalizeErrorText(item?.actualMatch)
+
+  return selectedFields.some((field) => {
+    const selected = normalizeErrorText(field)
+    if (!selected) return false
+
+    if (rowFieldList.some((name) => normalizeErrorText(name) === selected)) return true
+    if (rowFieldRaw && (rowFieldRaw.includes(selected) || selected.includes(rowFieldRaw))) return true
+    if (actualMatchRaw && (actualMatchRaw.includes(selected) || selected.includes(actualMatchRaw))) return true
+    return false
+  })
 }
 
 export default function App() {
@@ -169,16 +200,12 @@ export default function App() {
 
   const [activeView, setActiveView] = useState('dashboard')
   const [stats, setStats] = useState(emptyStats)
-  const [orders, setOrders] = useState([])
   const [contracts, setContracts] = useState([])
   const [customers, setCustomers] = useState([])
   const [parts, setParts] = useState([])
-  const [dashboardLoading, setDashboardLoading] = useState(true)
   const [contractsLoading, setContractsLoading] = useState(false)
   const [customersLoading, setCustomersLoading] = useState(false)
   const [partsLoading, setPartsLoading] = useState(false)
-  const [syncing, setSyncing] = useState(false)
-  const [filters, setFilters] = useState({ customer: '', contract: '', part: '' })
   const [contractSearch, setContractSearch] = useState('')
   const [contractYearFilter, setContractYearFilter] = useState('')
   const [availableContractYears, setAvailableContractYears] = useState([])
@@ -206,7 +233,8 @@ export default function App() {
   const [selectedPartYear, setSelectedPartYear] = useState(null)
   const [arrivalAnalysis, setArrivalAnalysis] = useState(null)
   const [arrivalLoading, setArrivalLoading] = useState(false)
-  const [arrivalTab, setArrivalTab] = useState('all')
+  const [arrivalErrorFieldFilters, setArrivalErrorFieldFilters] = useState([])
+  const [arrivalErrorPage, setArrivalErrorPage] = useState(1)
   const [arrivalMainTab, setArrivalMainTab] = useState('detail')
   const [selectedArrivalHistory, setSelectedArrivalHistory] = useState(null)
   const [selectedArrivalFileDetail, setSelectedArrivalFileDetail] = useState(null)
@@ -245,29 +273,10 @@ export default function App() {
   const [uploadArrivalStatus, setUploadArrivalStatus] = useState(null)
   const [uploadArrivalLoading, setUploadArrivalLoading] = useState(false)
 
-  const queryString = useMemo(() => {
-    const params = new URLSearchParams()
-    if (filters.customer) params.set('customer', filters.customer)
-    if (filters.contract) params.set('contract', filters.contract)
-    if (filters.part) params.set('part', filters.part)
-    params.set('pageSize', '20')
-    return params.toString()
-  }, [filters])
-
   async function loadDashboard() {
-    setDashboardLoading(true)
-    try {
-      const [statsRes, ordersRes] = await Promise.all([
-        apiFetch('/api/stats'),
-        apiFetch(`/api/orders?${queryString}`),
-      ])
-      const statsJson = await statsRes.json()
-      const ordersJson = await ordersRes.json()
-      setStats(statsJson)
-      setOrders(ordersJson.items || [])
-    } finally {
-      setDashboardLoading(false)
-    }
+    const statsRes = await apiFetch('/api/stats')
+    const statsJson = await statsRes.json()
+    setStats(statsJson)
   }
 
   async function loadContracts() {
@@ -329,7 +338,7 @@ export default function App() {
   useEffect(() => {
     if (!authToken) return
     loadDashboard()
-  }, [authToken, queryString])
+  }, [authToken])
 
   useEffect(() => {
     if (!authToken) return
@@ -352,6 +361,18 @@ export default function App() {
       loadArrivalAnalysis()
     }
   }, [authToken, activeView])
+
+  useEffect(() => {
+    const fields = (arrivalAnalysis?.errorFieldStats || [])
+      .map((item) => String(item?.field || '').trim())
+      .filter(Boolean)
+    setArrivalErrorFieldFilters(fields)
+    setArrivalErrorPage(1)
+  }, [arrivalAnalysis])
+
+  useEffect(() => {
+    setArrivalErrorPage(1)
+  }, [arrivalErrorFieldFilters])
 
   useEffect(() => {
     if (!authToken) return
@@ -411,13 +432,6 @@ export default function App() {
     }, 250)
     return () => clearTimeout(timer)
   }, [authToken, activeView, dbCheckTab, dbArrivalFilterVisible, dbArrivalPanelType, dbArrivalConditions])
-
-  async function handleSync() {
-    setSyncing(true)
-    await apiFetch('/api/sync', { method: 'POST' })
-    await Promise.all([loadDashboard(), loadContracts(), loadCustomers(), loadParts(), loadArrivalAnalysis(), loadDbCheck()])
-    setSyncing(false)
-  }
 
   async function loadArrivalAnalysis() {
     setArrivalLoading(true)
@@ -698,6 +712,15 @@ export default function App() {
     link.click()
   }
 
+  function toggleArrivalErrorField(field) {
+    setArrivalErrorFieldFilters((prev) => {
+      if (prev.includes(field)) {
+        return prev.filter((item) => item !== field)
+      }
+      return [...prev, field]
+    })
+  }
+
   async function openArrivalFileDetail(sourceFile) {
     if (!sourceFile) return
     setSelectedArrivalFileDetail({ summary: { sourceFile }, items: [] })
@@ -822,18 +845,6 @@ export default function App() {
     setPartAnalysisLoading(false)
   }
 
-  function exportContracts() {
-    if (!(contractMeta.total || 0)) return
-
-    const params = new URLSearchParams()
-    if (contractSearch) params.set('search', contractSearch)
-    if (contractYearFilter) params.set('year', contractYearFilter)
-
-    const link = document.createElement('a')
-    link.href = `/api/contracts/export?${params.toString()}`
-    link.click()
-  }
-
   function renderPagination(meta, onPageChange) {
     const totalPages = Math.max(1, Math.ceil((meta.total || 0) / (meta.pageSize || 25)))
 
@@ -876,88 +887,6 @@ export default function App() {
             </div>
           ))}
         </div>
-
-        <div className="mt-6 grid gap-4 lg:grid-cols-[2fr_1fr]">
-          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-            <h2 className="text-lg font-semibold">筛选条件</h2>
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <input
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-                placeholder="客户代码"
-                value={filters.customer}
-                onChange={(e) => setFilters((prev) => ({ ...prev, customer: e.target.value }))}
-              />
-              <input
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-                placeholder="合同号"
-                value={filters.contract}
-                onChange={(e) => setFilters((prev) => ({ ...prev, contract: e.target.value }))}
-              />
-              <input
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-                placeholder="零件号 / 互换零件号"
-                value={filters.part}
-                onChange={(e) => setFilters((prev) => ({ ...prev, part: e.target.value }))}
-              />
-            </div>
-          </div>
-
-          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-            <h2 className="text-lg font-semibold">高频客户</h2>
-            <div className="mt-4 space-y-3">
-              {stats.topCustomers?.map((item) => (
-                <div key={item.customerCode} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-                  <span className="font-medium">{item.customerCode}</span>
-                  <span className="text-sm text-slate-500">{formatNumber(item.count)} 条</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-          <div className="border-b border-slate-200 px-5 py-4">
-            <h2 className="text-lg font-semibold">订单明细</h2>
-          </div>
-
-          {dashboardLoading ? (
-            <div className="px-5 py-10 text-sm text-slate-500">正在加载数据...</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50 text-left text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">客户</th>
-                    <th className="px-4 py-3">合同号</th>
-                    <th className="px-4 py-3">序号</th>
-                    <th className="px-4 py-3">零件号</th>
-                    <th className="px-4 py-3">互换零件号</th>
-                    <th className="px-4 py-3">零件名</th>
-                    <th className="px-4 py-3">单价</th>
-                    <th className="px-4 py-3">个数</th>
-                    <th className="px-4 py-3">总价</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {orders.map((order) => (
-                    <tr key={order.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-medium">{order.customerCode || '-'}</td>
-                      <td className="px-4 py-3">{order.contractNo || '-'}</td>
-                      <td className="px-4 py-3">{order.sequence || '-'}</td>
-                      <td className="px-4 py-3">{formatPartCode(order.partNo)}</td>
-                      <td className="px-4 py-3">{formatPartCode(order.interchangePartNo)}</td>
-                      <td className="px-4 py-3">{order.partName || '-'}</td>
-                      <td className="px-4 py-3">{formatMoney(order.unitPrice)}</td>
-                      <td className="px-4 py-3">{formatNumber(order.quantity)}</td>
-                      <td className="px-4 py-3">{formatMoney(order.totalPrice)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!orders.length && <div className="px-5 py-8 text-sm text-slate-500">没有匹配到数据。</div>}
-            </div>
-          )}
-        </div>
       </>
     )
   }
@@ -994,13 +923,6 @@ export default function App() {
                   setContractPage(1)
                 }}
               />
-              <button
-                onClick={exportContracts}
-                disabled={!contracts.length}
-                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                导出筛选结果
-              </button>
             </div>
           </div>
         </div>
@@ -1532,10 +1454,16 @@ export default function App() {
     const checks = arrivalAnalysis?.checks || []
 
     const displayChecks = checks.filter((item) => {
-      if (arrivalTab === 'correct') return item.checkResult === '全部正确'
-      if (arrivalTab === 'error') return item.checkResult === '有错误'
-      return true
+      if (item.checkResult !== '有错误') return false
+
+      const selectedFields = arrivalErrorFieldFilters
+      return matchesArrivalErrorSelection(item, selectedFields)
     })
+
+    const pagedDisplayChecks = displayChecks.slice(
+      (arrivalErrorPage - 1) * ARRIVAL_ERROR_PAGE_SIZE,
+      arrivalErrorPage * ARRIVAL_ERROR_PAGE_SIZE,
+    )
 
     return (
       <div className="space-y-4">
@@ -1619,9 +1547,17 @@ export default function App() {
               <div className="overflow-x-auto px-5 py-4">
                 <div className="flex flex-wrap gap-2">
                   {errorFieldStats.map((item) => (
-                    <span key={item.field} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700">
+                    <button
+                      key={item.field}
+                      onClick={() => toggleArrivalErrorField(item.field)}
+                      className={`rounded-full px-3 py-1 text-sm transition ${
+                        arrivalErrorFieldFilters.includes(item.field)
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
                       {item.field}：{formatNumber(item.count)}
-                    </span>
+                    </button>
                   ))}
                   {!errorFieldStats.length && <span className="text-sm text-slate-500">暂无错误字段统计。</span>}
                 </div>
@@ -1631,26 +1567,9 @@ export default function App() {
             <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
               <div className="border-b border-slate-200 px-5 py-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <h3 className="text-base font-semibold">到货核对明细（最多显示5000条）</h3>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setArrivalTab('all')}
-                      className={`rounded-lg px-3 py-1.5 text-sm font-medium ${arrivalTab === 'all' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-                    >
-                      全部（{formatNumber(checks.length)}）
-                    </button>
-                    <button
-                      onClick={() => setArrivalTab('correct')}
-                      className={`rounded-lg px-3 py-1.5 text-sm font-medium ${arrivalTab === 'correct' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-                    >
-                      正确（{formatNumber((summary.correctRows || 0))}）
-                    </button>
-                    <button
-                      onClick={() => setArrivalTab('error')}
-                      className={`rounded-lg px-3 py-1.5 text-sm font-medium ${arrivalTab === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-                    >
-                      有问题（{formatNumber((summary.errorRows || 0))}）
-                    </button>
+                  <h3 className="text-base font-semibold">错误明细（最多显示5000条）</h3>
+                  <div className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white">
+                    有问题（{formatNumber(displayChecks.length)}）
                   </div>
                 </div>
               </div>
@@ -1675,7 +1594,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {displayChecks.map((item, index) => (
+                    {pagedDisplayChecks.map((item, index) => (
                       <tr key={`${item.rowIndex}-${index}`} className="hover:bg-slate-50">
                         <td className="px-4 py-3">{formatNumber(item.rowIndex)}</td>
                         <td className="px-4 py-3">{item.arrivalDate || '-'}</td>
@@ -1697,6 +1616,11 @@ export default function App() {
                 </table>
                 {!displayChecks.length && <div className="px-5 py-8 text-sm text-slate-500">当前筛选下没有记录。</div>}
               </div>
+              {!!displayChecks.length && renderPagination({
+                total: displayChecks.length,
+                page: arrivalErrorPage,
+                pageSize: ARRIVAL_ERROR_PAGE_SIZE,
+              }, setArrivalErrorPage)}
             </div>
           </>
         ) : arrivalMainTab === 'summary' ? (
@@ -1807,6 +1731,24 @@ export default function App() {
   }
 
   function renderUpload() {
+    async function downloadUploadTemplate(url, filename) {
+      try {
+        const response = await apiFetch(url)
+        if (!response.ok) {
+          const json = await response.json().catch(() => ({}))
+          throw new Error(json.message || '下载模板失败')
+        }
+        const blob = await response.blob()
+        const link = document.createElement('a')
+        link.href = URL.createObjectURL(blob)
+        link.download = filename
+        link.click()
+        URL.revokeObjectURL(link.href)
+      } catch (error) {
+        alert(error.message)
+      }
+    }
+
     async function handleUploadOrders() {
       if (!uploadOrderFile) return
       setUploadOrderLoading(true)
@@ -1853,7 +1795,15 @@ export default function App() {
       <div className="space-y-6">
         {/* 上传合同表 */}
         <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
-          <h3 className="text-base font-semibold text-slate-800 mb-1">上传合同表</h3>
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <h3 className="text-base font-semibold text-slate-800">上传合同表</h3>
+            <button
+              onClick={() => downloadUploadTemplate('/api/upload-orders-template', '合同上传模板.xlsx')}
+              className="rounded-lg bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-100"
+            >
+              下载模板
+            </button>
+          </div>
           <p className="text-sm text-slate-500 mb-4">上传后将替换现有合同数据并重新导入数据库，格式须与 isuzu_data.xlsx 一致</p>
           <p className="text-xs text-amber-700 mb-4 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
             第一行表头必须严格为：序号、零件号、互换零件号、零件名、中文零件名、单价、个数、总价、合同号。
@@ -1908,8 +1858,19 @@ export default function App() {
 
         {/* 上传到货表 */}
         <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
-          <h3 className="text-base font-semibold text-slate-800 mb-1">上传到货表</h3>
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <h3 className="text-base font-semibold text-slate-800">上传到货表</h3>
+            <button
+              onClick={() => downloadUploadTemplate('/api/upload-arrivals-template', '到货上传模板.xlsx')}
+              className="rounded-lg bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+            >
+              下载模板
+            </button>
+          </div>
           <p className="text-sm text-slate-500 mb-4">可一次选择多个文件，已存在的文件名会自动跳过，格式须与「Isuzu-XXXXXX- 国内-到货明细.xlsx」一致</p>
+          <p className="text-xs text-amber-700 mb-4 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
+            第一行表头建议为：合同号、序号、零件号、互换零件号、零件名、个数、单价、总价。
+          </p>
           <div
             className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 px-6 py-10 hover:border-emerald-400 hover:bg-emerald-50 transition-colors cursor-pointer"
             onDragOver={(e) => e.preventDefault()}
@@ -2805,13 +2766,6 @@ export default function App() {
               <p className="text-sm font-medium text-indigo-600">{viewMeta?.label}</p>
               <h2 className="mt-1 text-3xl font-bold tracking-tight">{viewMeta?.desc}</h2>
             </div>
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {syncing ? '同步中...' : '重新同步 Excel'}
-            </button>
           </div>
 
           <div className="mb-4 flex gap-2 lg:hidden">

@@ -3115,6 +3115,30 @@ def create_app():
         rebuild_all_summaries()
         return jsonify(result)
 
+    @app.get("/api/upload-orders-template")
+    def download_upload_orders_template():
+        output = BytesIO()
+        pd.DataFrame(columns=ORDER_UPLOAD_COLUMNS).to_excel(output, index=False)
+        output.seek(0)
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name="合同上传模板.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    @app.get("/api/upload-arrivals-template")
+    def download_upload_arrivals_template():
+        output = BytesIO()
+        pd.DataFrame(columns=ARRIVAL_COLUMNS).to_excel(output, index=False)
+        output.seek(0)
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name="到货上传模板.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     @app.post("/api/upload-arrivals")
     def upload_arrivals():
         files = request.files.getlist("files")
@@ -3160,17 +3184,6 @@ def create_app():
         result["skippedFiles"] = skipped
         result["errorFiles"] = errors
         return jsonify(result)
-
-    @app.post("/api/sync")
-    def sync_data():
-        order_result = sync_orders_from_excel()
-        arrival_result = sync_arrivals_from_files()
-        rebuild_all_summaries()
-        return jsonify({
-            "orders": order_result,
-            "arrivals": arrival_result,
-            "message": "订单与到货数据已同步",
-        })
 
     return app
 
