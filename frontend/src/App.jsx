@@ -76,6 +76,7 @@ const moneyFormatter = new Intl.NumberFormat('en-US', {
 })
 
 const contractStatusOrder = ['completed', 'pending', 'abnormal']
+const CONTRACT_DETAIL_PAGE_SIZE = 100
 
 function formatNumber(value) {
   if (value === null || value === undefined || value === '') return '-'
@@ -193,6 +194,8 @@ export default function App() {
   const [contractDetailItems, setContractDetailItems] = useState([])
   const [contractDetailLoading, setContractDetailLoading] = useState(false)
   const [contractDetailStatusFilters, setContractDetailStatusFilters] = useState(contractStatusOrder)
+  const [contractDetailPartSearch, setContractDetailPartSearch] = useState('')
+  const [contractDetailPage, setContractDetailPage] = useState(1)
   const [selectedCustomer, setSelectedCustomer] = useState(null)
   const [customerAnalysis, setCustomerAnalysis] = useState(null)
   const [customerAnalysisLoading, setCustomerAnalysisLoading] = useState(false)
@@ -730,6 +733,8 @@ export default function App() {
     setSelectedContract(contract)
     setContractDetailItems([])
     setContractDetailStatusFilters(contractStatusOrder)
+    setContractDetailPartSearch('')
+    setContractDetailPage(1)
     setContractDetailLoading(true)
 
     try {
@@ -750,6 +755,8 @@ export default function App() {
     setContractDetailItems([])
     setContractDetailLoading(false)
     setContractDetailStatusFilters(contractStatusOrder)
+    setContractDetailPartSearch('')
+    setContractDetailPage(1)
   }
 
   function toggleContractDetailStatus(status) {
@@ -759,6 +766,7 @@ export default function App() {
       }
       return [...prev, status]
     })
+    setContractDetailPage(1)
   }
 
   async function openCustomerAnalysis(customer) {
@@ -1092,10 +1100,23 @@ export default function App() {
 
     const contractTotalCount = tabCounts.completed + tabCounts.pending + tabCounts.abnormal
 
-    const displayContractItems = contractDetailItems.filter((item) => {
+    const statusFilteredItems = contractDetailItems.filter((item) => {
       const status = getContractItemStatus(item)
       return contractDetailStatusFilters.includes(status)
     })
+
+    const searchDigits = String(contractDetailPartSearch || '').replace(/\D/g, '')
+    const searchedContractItems = statusFilteredItems.filter((item) => {
+      if (!searchDigits) return true
+      const partDigits = String(item?.partNo || '').replace(/\D/g, '')
+      return partDigits.includes(searchDigits)
+    })
+
+    const totalPages = Math.max(1, Math.ceil(searchedContractItems.length / CONTRACT_DETAIL_PAGE_SIZE))
+    const currentPage = Math.min(contractDetailPage, totalPages)
+    const startIndex = (currentPage - 1) * CONTRACT_DETAIL_PAGE_SIZE
+    const endIndex = startIndex + CONTRACT_DETAIL_PAGE_SIZE
+    const displayContractItems = searchedContractItems.slice(startIndex, endIndex)
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
@@ -1104,7 +1125,7 @@ export default function App() {
             <div>
               <h3 className="text-xl font-semibold text-slate-900">合同详情</h3>
               <p className="mt-1 text-sm text-slate-500">
-                合同号：{selectedContract.contractNo || '-'} ｜ 客户：{selectedContract.customerCode || '-'} ｜ 总条目：{formatNumber(contractTotalCount)} ｜ 已显示：{formatNumber(displayContractItems.length)}
+                合同号：{selectedContract.contractNo || '-'} ｜ 客户：{selectedContract.customerCode || '-'} ｜ 总条目：{formatNumber(contractTotalCount)} ｜ 当前筛选：{formatNumber(searchedContractItems.length)} ｜ 本页：{formatNumber(displayContractItems.length)}
               </p>
             </div>
             <button
@@ -1132,6 +1153,19 @@ export default function App() {
                   </button>
                 )
               })}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <label className="text-sm text-slate-500">零件号搜索（数字）：</label>
+              <input
+                type="text"
+                value={contractDetailPartSearch}
+                onChange={(e) => {
+                  setContractDetailPartSearch(e.target.value)
+                  setContractDetailPage(1)
+                }}
+                placeholder="输入零件号中的数字，如 897"
+                className="w-full max-w-sm rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+              />
             </div>
           </div>
 
@@ -1209,7 +1243,28 @@ export default function App() {
               </table>
               {!displayContractItems.length && (
                 <div className="px-5 py-8 text-sm text-slate-500">
-                  {contractDetailItems.length ? '当前筛选下暂无条目。' : '该合同暂无详细条目。'}
+                  {contractDetailItems.length ? '当前筛选条件下暂无条目。' : '该合同暂无详细条目。'}
+                </div>
+              )}
+              {searchedContractItems.length > CONTRACT_DETAIL_PAGE_SIZE && (
+                <div className="flex items-center justify-between border-t border-slate-200 px-5 py-3 text-sm text-slate-600">
+                  <span>共 {formatNumber(searchedContractItems.length)} 条，第 {currentPage} / {totalPages} 页（每页 {CONTRACT_DETAIL_PAGE_SIZE} 条）</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setContractDetailPage((prev) => Math.max(1, prev - 1))}
+                      disabled={currentPage <= 1}
+                      className="rounded-lg bg-slate-100 px-3 py-1 disabled:opacity-40 hover:bg-slate-200"
+                    >
+                      上一页
+                    </button>
+                    <button
+                      onClick={() => setContractDetailPage((prev) => Math.min(totalPages, prev + 1))}
+                      disabled={currentPage >= totalPages}
+                      className="rounded-lg bg-slate-100 px-3 py-1 disabled:opacity-40 hover:bg-slate-200"
+                    >
+                      下一页
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
