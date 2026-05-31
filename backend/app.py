@@ -21,7 +21,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import and_, func, or_
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = BASE_DIR / "orders.db"
+DB_PATH = BASE_DIR / "data.db"
 SOURCE_FILE = BASE_DIR / "isuzu_data.xlsx"
 AUTH_FILE = BASE_DIR / "auth.json"
 ARRIVAL_DIR = BASE_DIR / "到货文件"
