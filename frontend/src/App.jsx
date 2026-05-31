@@ -16,7 +16,7 @@ async function apiFetch(url, options = {}) {
   })
   if (res.status === 401 && !url.includes('/api/login')) {
     localStorage.removeItem('authToken')
-    window.location.reload()
+    window.dispatchEvent(new Event('auth:unauthorized'))
     throw new Error('Unauthorized')
   }
   return res
@@ -108,6 +108,17 @@ export default function App() {
   const [loginCode, setLoginCode] = useState('')
   const [loginError, setLoginError] = useState('')
   const [loginLoading, setLoginLoading] = useState(false)
+
+  useEffect(() => {
+    function handleUnauthorized() {
+      setAuthToken(null)
+      setLoginCode('')
+      setLoginError('登录已失效，请重新输入访问码')
+    }
+
+    window.addEventListener('auth:unauthorized', handleUnauthorized)
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized)
+  }, [])
 
   async function handleLogin(e) {
     e.preventDefault()
@@ -301,42 +312,51 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (!authToken) return
     loadDashboard()
-  }, [queryString])
+  }, [authToken, queryString])
 
   useEffect(() => {
+    if (!authToken) return
     if (activeView === 'contracts') loadContracts()
-  }, [activeView, contractSearch, contractYearFilter, contractPage])
+  }, [authToken, activeView, contractSearch, contractYearFilter, contractPage])
 
   useEffect(() => {
+    if (!authToken) return
     if (activeView === 'customers') loadCustomers()
-  }, [activeView, customerSearch, customerPage])
+  }, [authToken, activeView, customerSearch, customerPage])
 
   useEffect(() => {
+    if (!authToken) return
     if (activeView === 'parts') loadParts()
-  }, [activeView, partSearch, partPage])
+  }, [authToken, activeView, partSearch, partPage])
 
   useEffect(() => {
+    if (!authToken) return
     if (activeView === 'arrival') {
       loadArrivalAnalysis()
     }
-  }, [activeView])
+  }, [authToken, activeView])
 
   useEffect(() => {
+    if (!authToken) return
     if (activeView === 'dbcheck') {
       loadDbCheck()
     }
-  }, [activeView])
+  }, [authToken, activeView])
 
   useEffect(() => {
+    if (!authToken) return
     if (activeView === 'dbcheck' && dbCheckTab === 'orders') loadDbOrders()
-  }, [activeView, dbCheckTab, dbOrderPage])
+  }, [authToken, activeView, dbCheckTab, dbOrderPage])
 
   useEffect(() => {
+    if (!authToken) return
     if (activeView === 'dbcheck' && dbCheckTab === 'arrivals') loadDbArrivals()
-  }, [activeView, dbCheckTab, dbArrivalPage])
+  }, [authToken, activeView, dbCheckTab, dbArrivalPage])
 
   useEffect(() => {
+    if (!authToken) return
     if (!(activeView === 'dbcheck' && dbCheckTab === 'orders' && dbOrderFilterVisible && dbOrderPanelType === 'search')) return
     const timer = setTimeout(() => {
       setDbOrderPrimarySearched(!!String(dbOrderSearchLevels[0] || '').trim())
@@ -344,18 +364,20 @@ export default function App() {
       loadDbOrders(1, dbOrderSearchLevels, [])
     }, 250)
     return () => clearTimeout(timer)
-  }, [activeView, dbCheckTab, dbOrderFilterVisible, dbOrderPanelType, dbOrderSearchLevels])
+  }, [authToken, activeView, dbCheckTab, dbOrderFilterVisible, dbOrderPanelType, dbOrderSearchLevels])
 
   useEffect(() => {
+    if (!authToken) return
     if (!(activeView === 'dbcheck' && dbCheckTab === 'orders' && dbOrderFilterVisible && dbOrderPanelType === 'filter')) return
     const timer = setTimeout(() => {
       setDbOrderPage(1)
       loadDbOrders(1, [], dbOrderConditions)
     }, 250)
     return () => clearTimeout(timer)
-  }, [activeView, dbCheckTab, dbOrderFilterVisible, dbOrderPanelType, dbOrderConditions])
+  }, [authToken, activeView, dbCheckTab, dbOrderFilterVisible, dbOrderPanelType, dbOrderConditions])
 
   useEffect(() => {
+    if (!authToken) return
     if (!(activeView === 'dbcheck' && dbCheckTab === 'arrivals' && dbArrivalFilterVisible && dbArrivalPanelType === 'search')) return
     const timer = setTimeout(() => {
       setDbArrivalPrimarySearched(!!String(dbArrivalSearchLevels[0] || '').trim())
@@ -363,16 +385,17 @@ export default function App() {
       loadDbArrivals(1, dbArrivalSearchLevels, [])
     }, 250)
     return () => clearTimeout(timer)
-  }, [activeView, dbCheckTab, dbArrivalFilterVisible, dbArrivalPanelType, dbArrivalSearchLevels])
+  }, [authToken, activeView, dbCheckTab, dbArrivalFilterVisible, dbArrivalPanelType, dbArrivalSearchLevels])
 
   useEffect(() => {
+    if (!authToken) return
     if (!(activeView === 'dbcheck' && dbCheckTab === 'arrivals' && dbArrivalFilterVisible && dbArrivalPanelType === 'filter')) return
     const timer = setTimeout(() => {
       setDbArrivalPage(1)
       loadDbArrivals(1, [], dbArrivalConditions)
     }, 250)
     return () => clearTimeout(timer)
-  }, [activeView, dbCheckTab, dbArrivalFilterVisible, dbArrivalPanelType, dbArrivalConditions])
+  }, [authToken, activeView, dbCheckTab, dbArrivalFilterVisible, dbArrivalPanelType, dbArrivalConditions])
 
   async function handleSync() {
     setSyncing(true)

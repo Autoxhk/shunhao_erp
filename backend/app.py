@@ -30,8 +30,13 @@ ARRIVAL_MATCH_CACHE = {"signature": None, "index": defaultdict(list)}
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 _AUTH_CONFIG: dict = {}
-_SESSIONS: dict = {}          # {token: expiry_unix_timestamp}
 _FAILED_ATTEMPTS: dict = {}   # {ip: [timestamp, ...]}
+
+
+def _hash_code(code: str, salt: str, iterations: int) -> str:
+    return hashlib.pbkdf2_hmac(
+        "sha256", code.encode(), salt.encode(), iterations
+    ).hex()
 
 
 def _setup_auth() -> None:
@@ -44,22 +49,16 @@ def _setup_auth() -> None:
     code = secrets.token_hex(16)          # 32 hex characters
     salt = secrets.token_hex(16)
     iterations = 600_000
-    code_hash = hashlib.pbkdf2_hmac(
-        "sha256", code.encode(), salt.encode(), iterations
-    ).hex()
+    code_hash = _hash_code(code, salt, iterations)
     _AUTH_CONFIG = {"code_hash": code_hash, "salt": salt, "iterations": iterations}
     with open(AUTH_FILE, "w") as f:
         json.dump(_AUTH_CONFIG, f)
-
-    code_file = BASE_DIR / "AUTH_CODE.txt"
-    with open(code_file, "w") as f:
-        f.write(f"登录码: {code}\n请妥善保管，不要上传到 GitHub。\n")
 
     border = "=" * 54
     print(f"\n{border}")
     print(f"  首次启动，已生成 32 位登录码：")
     print(f"  {code}")
-    print(f"  已同步写入 AUTH_CODE.txt（请勿提交到 Git）")
+    print(f"  已加盐哈希保存到 auth.json（请妥善保管登录码原文）")
     print(f"{border}\n")
 
 
@@ -67,9 +66,7 @@ def _verify_code(code: str) -> bool:
     try:
         cfg = _AUTH_CONFIG
         expected = bytes.fromhex(cfg["code_hash"])
-        computed = hashlib.pbkdf2_hmac(
-            "sha256", code.encode(), cfg["salt"].encode(), cfg["iterations"]
-        )
+        computed = bytes.fromhex(_hash_code(code, cfg["salt"], cfg["iterations"]))
         return hmac.compare_digest(expected, computed)
     except Exception:
         return False
@@ -87,20 +84,19 @@ def _record_failed(ip: str) -> None:
 
 
 def _is_valid_session(token: str) -> bool:
-    expiry = _SESSIONS.get(token)
-    if expiry is None:
+    session_row = db.session.get(AuthSession, token)
+    if session_row is None:
         return False
-    if time.time() > expiry:
-        _SESSIONS.pop(token, None)
+    if time.time() > session_row.expires_at:
+        db.session.delete(session_row)
+        db.session.commit()
         return False
     return True
 
 
 def _clean_sessions() -> None:
     now = time.time()
-    expired = [t for t, exp in list(_SESSIONS.items()) if now > exp]
-    for t in expired:
-        _SESSIONS.pop(t, None)
+    db.session.query(AuthSession).filter(AuthSession.expires_at < now).delete(synchronize_session=False)
 # ── End Auth ──────────────────────────────────────────────────────────────────
 
 
@@ -184,6 +180,12 @@ class CacheStore(db.Model):
     key = db.Column(db.String(80), primary_key=True)
     value_json = db.Column(db.Text)
     updated_at = db.Column(db.String(30))
+
+
+class AuthSession(db.Model):
+    __tablename__ = "auth_session"
+    token = db.Column(db.String(128), primary_key=True)
+    expires_at = db.Column(db.Float, index=True)
 
 
 def clean_text(value):
@@ -1918,15 +1920,19 @@ def create_app():
             return jsonify({"message": f"登录码错误，还有 {max(remaining, 0)} 次机会"}), 401
 
         token = secrets.token_hex(32)           # 64-char session token
-        _SESSIONS[token] = time.time() + 86400  # 24-hour session
         _clean_sessions()
+        db.session.add(AuthSession(token=token, expires_at=time.time() + 86400))
+        db.session.commit()
         return jsonify({"token": token})
 
     @app.post("/api/logout")
     def logout():
         raw = request.headers.get("Authorization", "")
         token = raw[7:] if raw.startswith("Bearer ") else raw
-        _SESSIONS.pop(token, None)
+        session_row = db.session.get(AuthSession, token)
+        if session_row is not None:
+            db.session.delete(session_row)
+            db.session.commit()
         return jsonify({"message": "已退出登录"})
     # ── End Auth middleware ────────────────────────────────────────────────────
 
