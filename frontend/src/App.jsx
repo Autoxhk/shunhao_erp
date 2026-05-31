@@ -1723,6 +1723,9 @@ export default function App() {
         <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
           <h3 className="text-base font-semibold text-slate-800 mb-1">上传合同表</h3>
           <p className="text-sm text-slate-500 mb-4">上传后将替换现有合同数据并重新导入数据库，格式须与 isuzu_data.xlsx 一致</p>
+          <p className="text-xs text-amber-700 mb-4 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
+            第一行表头必须严格为：序号、零件号、互换零件号、零件名、中文零件名、单价、个数、总价、合同号。
+          </p>
           <div
             className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 px-6 py-10 hover:border-indigo-400 hover:bg-indigo-50 transition-colors cursor-pointer"
             onDragOver={(e) => e.preventDefault()}

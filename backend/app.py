@@ -26,6 +26,7 @@ SOURCE_FILE = BASE_DIR / "isuzu_data.xlsx"
 AUTH_FILE = BASE_DIR / "auth.json"
 ARRIVAL_DIR = BASE_DIR / "到货文件"
 ARRIVAL_COLUMNS = ["合同号", "序号", "零件号", "互换零件号", "零件名", "个数", "单价", "总价"]
+ORDER_UPLOAD_COLUMNS = ["序号", "零件号", "互换零件号", "零件名", "中文零件名", "单价", "个数", "总价", "合同号"]
 ARRIVAL_MATCH_CACHE = {"signature": None, "index": defaultdict(list)}
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -202,6 +203,19 @@ def clean_number(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def normalize_header_name(value):
+    if value is None:
+        return ""
+    text = str(value).replace("\u3000", " ").strip()
+    return "".join(text.split())
+
+
+def validate_order_headers(df: pd.DataFrame):
+    actual_headers = [normalize_header_name(col) for col in df.columns[: len(ORDER_UPLOAD_COLUMNS)]]
+    expected_headers = [normalize_header_name(col) for col in ORDER_UPLOAD_COLUMNS]
+    return actual_headers == expected_headers, actual_headers
 
 
 def safe_json_value(value):
@@ -1670,11 +1684,22 @@ def finalize_yearly_buckets(yearly_buckets):
     return results
 
 
-def sync_orders_from_excel():
-    if not SOURCE_FILE.exists():
-        return {"imported": 0, "source": str(SOURCE_FILE), "message": "Excel source file not found."}
+def sync_orders_from_excel(source_file=SOURCE_FILE):
+    if not source_file.exists():
+        return {"imported": 0, "source": str(source_file), "message": "Excel source file not found."}
 
-    raw_df = pd.read_excel(SOURCE_FILE)
+    raw_df = pd.read_excel(source_file)
+    is_valid_headers, actual_headers = validate_order_headers(raw_df)
+    if not is_valid_headers:
+        expected = "\t".join(ORDER_UPLOAD_COLUMNS)
+        actual = "\t".join(actual_headers) if actual_headers else "(空)"
+        return {
+            "imported": 0,
+            "source": str(source_file),
+            "error": "上传合同信息表失败：第一行表头格式不正确。",
+            "message": f"第一行表头必须严格为：{expected}。当前表头为：{actual}",
+        }
+
     rename_map = {
         "合同号": "contract_no",
         "客户代码": "customer_code",
@@ -1715,7 +1740,7 @@ def sync_orders_from_excel():
         db.session.bulk_save_objects(orders)
     db.session.commit()
 
-    return {"imported": len(orders), "source": str(SOURCE_FILE), "message": "Orders synced successfully."}
+    return {"imported": len(orders), "source": str(source_file), "message": "Orders synced successfully."}
 
 
 def rebuild_contract_summary():
@@ -3076,8 +3101,15 @@ def create_app():
         if not file.filename or not file.filename.lower().endswith(".xlsx"):
             return jsonify({"message": "请上传 .xlsx 文件"}), 400
 
-        file.save(str(SOURCE_FILE))
-        result = sync_orders_from_excel()
+        temp_path = BASE_DIR / "_upload_orders_tmp.xlsx"
+        file.save(str(temp_path))
+
+        result = sync_orders_from_excel(temp_path)
+        if result.get("error"):
+            temp_path.unlink(missing_ok=True)
+            return jsonify({"message": result.get("message")}), 400
+
+        temp_path.replace(SOURCE_FILE)
         ARRIVAL_MATCH_CACHE["signature"] = None
         ARRIVAL_MATCH_CACHE["index"] = defaultdict(list)
         rebuild_all_summaries()
