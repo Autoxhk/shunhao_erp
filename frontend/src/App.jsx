@@ -1,4 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
+import DashboardPage from './pages/DashboardPage'
+import ContractsPage from './pages/ContractsPage'
+import CustomersPage from './pages/CustomersPage'
+import PartsPage from './pages/PartsPage'
+import ArrivalPage from './pages/ArrivalPage'
+import UploadPage from './pages/UploadPage'
+import DbCheckPage from './pages/DbCheckPage'
 
 // ── Authenticated fetch ───────────────────────────────────────────────────────
 function getAuthToken() {
@@ -2784,13 +2791,147 @@ export default function App() {
             ))}
           </div>
 
-          {activeView === 'dashboard' && renderDashboard()}
-          {activeView === 'contracts' && renderContracts()}
-          {activeView === 'customers' && renderCustomers()}
-          {activeView === 'parts' && renderParts()}
-          {activeView === 'arrival' && renderArrival()}
-          {activeView === 'upload' && renderUpload()}
-          {activeView === 'dbcheck' && renderDbCheck()}
+          {activeView === 'dashboard' && (
+            <DashboardPage ctx={{ statCards, stats, formatMoney, formatNumber, formatPartCode, apiFetch }} />
+          )}
+          {activeView === 'contracts' && (
+            <ContractsPage ctx={{
+              contractYearFilter,
+              setContractYearFilter,
+              setContractPage,
+              availableContractYears,
+              contractSearch,
+              setContractSearch,
+              contractsLoading,
+              contracts,
+              contractMeta,
+              formatOrderDate,
+              formatNumber,
+              formatMoney,
+              openContractDetail,
+              setSelectedArrivalHistory,
+              renderPagination,
+            }} />
+          )}
+          {activeView === 'customers' && (
+            <CustomersPage ctx={{
+              customerSearch,
+              setCustomerSearch,
+              setCustomerPage,
+              customersLoading,
+              customers,
+              customerMeta,
+              formatNumber,
+              formatMoney,
+              openCustomerAnalysis,
+              renderPagination,
+            }} />
+          )}
+          {activeView === 'parts' && (
+            <PartsPage ctx={{
+              partSearch,
+              setPartSearch,
+              setPartPage,
+              partsLoading,
+              parts,
+              partMeta,
+              formatNumber,
+              formatMoney,
+              formatPartCode,
+              openPartAnalysis,
+              renderPagination,
+            }} />
+          )}
+          {activeView === 'arrival' && (
+            <ArrivalPage ctx={{
+              arrivalAnalysis,
+              arrivalErrorFieldFilters,
+              matchesArrivalErrorSelection,
+              arrivalErrorPage,
+              ARRIVAL_ERROR_PAGE_SIZE,
+              setArrivalMainTab,
+              arrivalMainTab,
+              toggleArrivalErrorField,
+              setArrivalErrorPage,
+              formatNumber,
+              formatMoney,
+              formatPartCode,
+              loadArrivalAnalysis,
+              arrivalLoading,
+              exportArrivalErrors,
+              exportArrivalSummary,
+              openArrivalFileDetail,
+              exportArrivalAdvByFile,
+              exportArrivalCustomer,
+              renderPagination,
+            }} />
+          )}
+          {activeView === 'upload' && (
+            <UploadPage ctx={{
+              apiFetch,
+              uploadOrderFile,
+              setUploadOrderFile,
+              uploadOrderLoading,
+              setUploadOrderLoading,
+              uploadOrderStatus,
+              setUploadOrderStatus,
+              uploadArrivalFiles,
+              setUploadArrivalFiles,
+              uploadArrivalLoading,
+              setUploadArrivalLoading,
+              uploadArrivalStatus,
+              setUploadArrivalStatus,
+              loadDashboard,
+              loadContracts,
+              loadCustomers,
+              loadParts,
+              loadArrivalAnalysis,
+            }} />
+          )}
+          {activeView === 'dbcheck' && (
+            <DbCheckPage ctx={{
+              dbCheck,
+              dbCheckTab,
+              setDbCheckTab,
+              loadDbCheck,
+              dbCheckLoading,
+              formatNumber,
+              formatMoney,
+              showDbSearch,
+              showDbFilter,
+              resetDbFilters,
+              dbOrderMeta,
+              dbOrderFilterVisible,
+              dbOrderPanelType,
+              dbOrderSearchLevels,
+              updateDbCondition,
+              addDbCondition,
+              dbOrderPrimarySearched,
+              removeDbCondition,
+              dbOrderConditions,
+              dbOrderFilterFields,
+              dbOrderFilterOptions,
+              dbOrderLoading,
+              dbOrderRows,
+              formatPartCode,
+              openDbEditModal,
+              deleteDbRecord,
+              dbOrderPage,
+              setDbOrderPage,
+              dbArrivalMeta,
+              dbArrivalFilterVisible,
+              dbArrivalPanelType,
+              dbArrivalSearchLevels,
+              dbArrivalPrimarySearched,
+              dbArrivalConditions,
+              dbArrivalFilterFields,
+              dbArrivalFilterOptions,
+              dbArrivalLoading,
+              dbArrivalRows,
+              dbArrivalPage,
+              setDbArrivalPage,
+            }} />
+          )}
         </main>
       </div>
       {renderContractDetailModal()}
