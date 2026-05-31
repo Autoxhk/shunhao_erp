@@ -2616,7 +2616,39 @@ def create_app():
             ))
         if year:
             query = query.filter(ContractSummary.order_year == year)
-        return query.order_by(ContractSummary.total_amount.desc())
+        return query
+
+    def _apply_contract_arrival_status_filters(query, arrival_statuses):
+        selected = {clean_text(item) for item in (arrival_statuses or []) if clean_text(item)}
+        if not selected:
+            return query
+
+        clauses = []
+        if "异常" in selected:
+            clauses.append(ContractSummary.arrival_ratio > 100)
+        if "到货" in selected:
+            clauses.append(and_(ContractSummary.arrival_status == "到货", ContractSummary.arrival_ratio <= 100))
+        if "部分到货" in selected:
+            clauses.append(ContractSummary.arrival_status == "部分到货")
+        if "未到货" in selected:
+            clauses.append(ContractSummary.arrival_status == "未到货")
+
+        if not clauses:
+            return query
+        return query.filter(or_(*clauses))
+
+    def _get_contract_status_counts(query):
+        counts = {"到货": 0, "部分到货": 0, "未到货": 0, "异常": 0}
+        rows = query.with_entities(ContractSummary.arrival_status, ContractSummary.arrival_ratio).all()
+        for status, ratio in rows:
+            if (ratio or 0) > 100:
+                counts["异常"] += 1
+                continue
+            if status in counts:
+                counts[status] += 1
+            else:
+                counts["未到货"] += 1
+        return counts
 
     def _contract_summary_to_dict(row):
         try:
@@ -2643,10 +2675,17 @@ def create_app():
     def get_contracts():
         search = request.args.get("search", "").strip()
         year = request.args.get("year", "").strip()
+        arrival_statuses = [item.strip() for item in request.args.get("arrivalStatuses", "").split(",") if item.strip()]
         page = max(int(request.args.get("page", 1)), 1)
         page_size = min(max(int(request.args.get("pageSize", 20)), 1), 100)
 
-        query = _query_contract_summary(search, year)
+        base_query = _query_contract_summary(search, year)
+        status_counts = _get_contract_status_counts(base_query)
+        query = _apply_contract_arrival_status_filters(base_query, arrival_statuses).order_by(
+            ContractSummary.order_year.desc(),
+            ContractSummary.order_date.desc(),
+            ContractSummary.total_amount.desc(),
+        )
         total = query.count()
         items = query.offset((page - 1) * page_size).limit(page_size).all()
 
@@ -2663,6 +2702,7 @@ def create_app():
             "page": page,
             "pageSize": page_size,
             "availableYears": available_years,
+            "statusCounts": status_counts,
         })
 
     @app.get("/api/contracts/export")
@@ -2670,7 +2710,11 @@ def create_app():
         search = request.args.get("search", "").strip()
         year = request.args.get("year", "").strip()
 
-        rows = _query_contract_summary(search, year).all()
+        rows = _query_contract_summary(search, year).order_by(
+            ContractSummary.order_year.desc(),
+            ContractSummary.order_date.desc(),
+            ContractSummary.total_amount.desc(),
+        ).all()
         export_rows = [
             {
                 "序号": i + 1,

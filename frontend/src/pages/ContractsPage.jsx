@@ -1,8 +1,13 @@
+import { useState } from 'react'
+
 export default function ContractsPage({ ctx }) {
   const {
     contractYearFilter,
     setContractYearFilter,
     setContractPage,
+    contractArrivalStatusFilters,
+    setContractArrivalStatusFilters,
+    contractArrivalStatusCounts,
     availableContractYears,
     contractSearch,
     setContractSearch,
@@ -17,37 +22,83 @@ export default function ContractsPage({ ctx }) {
     renderPagination,
   } = ctx
 
+  const [showStatusFilterPanel, setShowStatusFilterPanel] = useState(false)
+  const arrivalStatusOptions = ['到货', '部分到货', '未到货', '异常']
+
+  function toggleArrivalStatus(status) {
+    const selected = contractArrivalStatusFilters || []
+    if (selected.includes(status) && selected.length === 1) return
+    const next = selected.includes(status)
+      ? selected.filter((item) => item !== status)
+      : [...selected, status]
+    setContractArrivalStatusFilters(next)
+    setContractPage(1)
+  }
+
   return (
     <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
       <div className="border-b border-slate-200 px-5 py-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3">
           <div>
             <h2 className="text-lg font-semibold">合同信息</h2>
             <p className="text-sm text-slate-500">按合同查看零件总个数、到货情况和合同总金额，并可按年份筛选。</p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <select
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-              value={contractYearFilter}
-              onChange={(e) => {
-                setContractYearFilter(e.target.value)
-                setContractPage(1)
-              }}
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <select
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                value={contractYearFilter}
+                onChange={(e) => {
+                  setContractYearFilter(e.target.value)
+                  setContractPage(1)
+                }}
+              >
+                <option value="">全部年份</option>
+                {availableContractYears.map((year) => (
+                  <option key={year} value={year}>{year}年</option>
+                ))}
+              </select>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                placeholder="搜索合同号 / 客户"
+                value={contractSearch}
+                onChange={(e) => {
+                  setContractSearch(e.target.value)
+                  setContractPage(1)
+                }}
+              />
+            </div>
+            <button
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              onClick={() => setShowStatusFilterPanel((prev) => !prev)}
             >
-              <option value="">全部年份</option>
-              {availableContractYears.map((year) => (
-                <option key={year} value={year}>{year}年</option>
-              ))}
-            </select>
-            <input
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-              placeholder="搜索合同号 / 客户"
-              value={contractSearch}
-              onChange={(e) => {
-                setContractSearch(e.target.value)
-                setContractPage(1)
-              }}
-            />
+              到货状态筛选
+            </button>
+          </div>
+
+          {showStatusFilterPanel && (
+            <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              {arrivalStatusOptions.map((status) => {
+                const checked = (contractArrivalStatusFilters || []).includes(status)
+                const count = contractArrivalStatusCounts?.[status] || 0
+                return (
+                  <button
+                    key={status}
+                    onClick={() => toggleArrivalStatus(status)}
+                    className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+                      checked
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    {status} ({formatNumber(count)})
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <div className="text-xs text-slate-500">
+            排序规则：下单年份从大到小，若同年则按下单日期从大到小。
           </div>
         </div>
       </div>

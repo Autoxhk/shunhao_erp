@@ -82,6 +82,7 @@ const moneyFormatter = new Intl.NumberFormat('en-US', {
 })
 
 const contractStatusOrder = ['completed', 'pending', 'abnormal']
+const contractArrivalStatusOptions = ['到货', '部分到货', '未到货', '异常']
 const CONTRACT_DETAIL_PAGE_SIZE = 100
 const ARRIVAL_ERROR_PAGE_SIZE = 50
 
@@ -215,6 +216,13 @@ export default function App() {
   const [partsLoading, setPartsLoading] = useState(false)
   const [contractSearch, setContractSearch] = useState('')
   const [contractYearFilter, setContractYearFilter] = useState('')
+  const [contractArrivalStatusFilters, setContractArrivalStatusFilters] = useState(contractArrivalStatusOptions)
+  const [contractArrivalStatusCounts, setContractArrivalStatusCounts] = useState({
+    到货: 0,
+    部分到货: 0,
+    未到货: 0,
+    异常: 0,
+  })
   const [availableContractYears, setAvailableContractYears] = useState([])
   const [customerSearch, setCustomerSearch] = useState('')
   const [partSearch, setPartSearch] = useState('')
@@ -292,10 +300,19 @@ export default function App() {
       const params = new URLSearchParams({ pageSize: '25', page: String(contractPage) })
       if (contractSearch) params.set('search', contractSearch)
       if (contractYearFilter) params.set('year', contractYearFilter)
+      if (contractArrivalStatusFilters.length) {
+        params.set('arrivalStatuses', contractArrivalStatusFilters.join(','))
+      }
       const response = await apiFetch(`/api/contracts?${params.toString()}`)
       const json = await response.json()
       setContracts(json.items || [])
       setAvailableContractYears(json.availableYears || [])
+      setContractArrivalStatusCounts({
+        到货: json?.statusCounts?.到货 || 0,
+        部分到货: json?.statusCounts?.部分到货 || 0,
+        未到货: json?.statusCounts?.未到货 || 0,
+        异常: json?.statusCounts?.异常 || 0,
+      })
       setContractMeta({
         total: json.total || 0,
         page: json.page || 1,
@@ -350,7 +367,7 @@ export default function App() {
   useEffect(() => {
     if (!authToken) return
     if (activeView === 'contracts') loadContracts()
-  }, [authToken, activeView, contractSearch, contractYearFilter, contractPage])
+  }, [authToken, activeView, contractSearch, contractYearFilter, contractArrivalStatusFilters, contractPage])
 
   useEffect(() => {
     if (!authToken) return
@@ -2799,6 +2816,9 @@ export default function App() {
               contractYearFilter,
               setContractYearFilter,
               setContractPage,
+              contractArrivalStatusFilters,
+              setContractArrivalStatusFilters,
+              contractArrivalStatusCounts,
               availableContractYears,
               contractSearch,
               setContractSearch,
