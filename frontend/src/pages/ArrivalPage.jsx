@@ -87,7 +87,7 @@ export default function ArrivalPage({ ctx }) {
 
       <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
         <div className="flex gap-2">
-          <button onClick={() => setArrivalMainTab('detail')} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${arrivalMainTab === 'detail' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>详情</button>
+          <button onClick={() => setArrivalMainTab('detail')} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${arrivalMainTab === 'detail' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>错误详情</button>
           <button onClick={() => setArrivalMainTab('summary')} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${arrivalMainTab === 'summary' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>按文件汇总</button>
           <button onClick={() => setArrivalMainTab('customerSummary')} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${arrivalMainTab === 'customerSummary' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>按客户汇总</button>
         </div>

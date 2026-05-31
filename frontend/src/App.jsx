@@ -12,8 +12,23 @@ function getAuthToken() {
   return localStorage.getItem('authToken')
 }
 
+function isProtectedApiRequest(url) {
+  const raw = String(url || '')
+  const path = raw.startsWith('http') ? new URL(raw, window.location.origin).pathname : raw.split('?')[0]
+  if (!path.startsWith('/api/')) return false
+  return !['/api/health', '/api/login', '/api/logout'].includes(path)
+}
+
 async function apiFetch(url, options = {}) {
   const token = getAuthToken()
+
+  // Hard-stop DB/API requests before login; do not send request without token.
+  if (isProtectedApiRequest(url) && !token) {
+    localStorage.removeItem('authToken')
+    window.dispatchEvent(new Event('auth:unauthorized'))
+    throw new Error('Unauthorized')
+  }
+
   const res = await fetch(url, {
     ...options,
     headers: {
@@ -689,7 +704,11 @@ export default function App() {
       const url = isAdd
         ? (type === 'order' ? '/api/db-order' : '/api/db-arrival')
         : (type === 'order' ? `/api/db-order/${dbEditForm.id}` : `/api/db-arrival/${dbEditForm.id}`)
-      const res = await fetch(url, { method: isAdd ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dbEditForm) })
+      const res = await apiFetch(url, {
+        method: isAdd ? 'POST' : 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dbEditForm),
+      })
       const json = await res.json()
       if (!res.ok) throw new Error(json.message || '保存失败')
       setDbEditModal(null)
@@ -706,7 +725,7 @@ export default function App() {
     if (!confirm('确认删除该条记录？此操作不可撤销。')) return
     try {
       const url = type === 'order' ? `/api/db-order/${id}` : `/api/db-arrival/${id}`
-      const res = await fetch(url, { method: 'DELETE' })
+      const res = await apiFetch(url, { method: 'DELETE' })
       const json = await res.json()
       if (!res.ok) throw new Error(json.message || '删除失败')
       if (type === 'order') { loadDbOrders(); loadDbCheck() }
