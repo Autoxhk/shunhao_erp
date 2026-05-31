@@ -2165,8 +2165,9 @@ def create_app():
         if not template_path.exists():
             return jsonify({"message": "templates.xlsx 不存在"}), 400
 
-        # Query arrival rows only to get contract numbers and arrival date;
-        # the actual ADV content will come from the Order (contract) table.
+        # Use rows from the selected arrival file as the ADV source of truth.
+        # This avoids cross-file contamination when the same customer appears
+        # in multiple files with overlapping contracts.
         arrival_rows = (
             ArrivalOrder.query.filter(
                 ArrivalOrder.source_file == source_file,
@@ -2182,26 +2183,8 @@ def create_app():
         first_date = next((clean_text(row.arrival_date) for row in arrival_rows if clean_text(row.arrival_date)), "")
         adv_date = format_adv_date_text(first_date)
 
-        # Collect distinct contract numbers referenced by the arrival file
-        contract_nos = list({row.contract_no for row in arrival_rows if row.contract_no})
-        if not contract_nos:
-            return jsonify({"message": "该到货文件无合同号数据"}), 404
-
-        # Use contract (Order) data as the authoritative source for ADV content
-        order_rows = (
-            Order.query.filter(
-                Order.contract_no.in_(contract_nos),
-                Order.customer_code.isnot(None),
-                func.trim(Order.customer_code) != "",
-            )
-            .order_by(Order.customer_code.asc(), Order.contract_no.asc(), Order.id.asc())
-            .all()
-        )
-        if not order_rows:
-            return jsonify({"message": "该到货文件对应合同无数据"}), 404
-
         customer_rows = defaultdict(list)
-        for row in order_rows:
+        for row in arrival_rows:
             item = {
                 "id": row.id,
                 "contractNo": row.contract_no,
@@ -2220,7 +2203,7 @@ def create_app():
             customer_rows[customer].append(item)
 
         if not customer_rows:
-            return jsonify({"message": "该到货文件对应合同无客户数据"}), 404
+            return jsonify({"message": "该到货文件无可导出的客户数据"}), 404
 
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zip_file:

@@ -43,6 +43,37 @@ async function apiFetch(url, options = {}) {
   }
   return res
 }
+
+function getDownloadFilename(response, fallbackName) {
+  const disposition = response.headers.get('content-disposition') || ''
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1])
+    } catch {
+      return utf8Match[1]
+    }
+  }
+  const basicMatch = disposition.match(/filename="?([^";]+)"?/i)
+  return basicMatch?.[1] || fallbackName
+}
+
+async function downloadWithAuth(url, fallbackName) {
+  const response = await apiFetch(url)
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}))
+    throw new Error(json.message || '导出失败')
+  }
+
+  const blob = await response.blob()
+  const filename = getDownloadFilename(response, fallbackName)
+  const href = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = href
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(href)
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 const emptyStats = {
@@ -735,24 +766,30 @@ export default function App() {
     }
   }
 
-  function exportArrivalErrors() {
-    const link = document.createElement('a')
-    link.href = '/api/arrival-analysis/export-errors'
-    link.click()
+  async function exportArrivalErrors() {
+    try {
+      await downloadWithAuth('/api/arrival-analysis/export-errors', '到货错误核对.xlsx')
+    } catch (error) {
+      alert(error.message)
+    }
   }
 
-  function exportArrivalSummary() {
-    const link = document.createElement('a')
-    link.href = '/api/arrival-analysis/export-summary'
-    link.click()
+  async function exportArrivalSummary() {
+    try {
+      await downloadWithAuth('/api/arrival-analysis/export-summary', '到货核对汇总.xlsx')
+    } catch (error) {
+      alert(error.message)
+    }
   }
 
-  function exportArrivalCustomer(customerCode) {
+  async function exportArrivalCustomer(customerCode) {
     if (!customerCode) return
-    const params = new URLSearchParams({ customerCode })
-    const link = document.createElement('a')
-    link.href = `/api/arrival-customer/export?${params.toString()}`
-    link.click()
+    try {
+      const params = new URLSearchParams({ customerCode })
+      await downloadWithAuth(`/api/arrival-customer/export?${params.toString()}`, `${customerCode}_到货统计.xlsx`)
+    } catch (error) {
+      alert(error.message)
+    }
   }
 
   function toggleArrivalErrorField(field) {
@@ -787,12 +824,14 @@ export default function App() {
     setArrivalFileDetailLoading(false)
   }
 
-  function exportArrivalAdvByFile(sourceFile) {
+  async function exportArrivalAdvByFile(sourceFile) {
     if (!sourceFile) return
-    const params = new URLSearchParams({ sourceFile })
-    const link = document.createElement('a')
-    link.href = `/api/arrival-file/export-adv?${params.toString()}`
-    link.click()
+    try {
+      const params = new URLSearchParams({ sourceFile })
+      await downloadWithAuth(`/api/arrival-file/export-adv?${params.toString()}`, `ADV_${sourceFile}.zip`)
+    } catch (error) {
+      alert(error.message)
+    }
   }
 
   async function openContractDetail(contract) {
@@ -2735,7 +2774,7 @@ export default function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold text-white">顺昊 ERP</h1>
+            <h1 className="text-2xl font-bold text-white">顺昊 DMS</h1>
             <p className="text-slate-400 text-sm mt-1">请输入访问码登录</p>
           </div>
           <form onSubmit={handleLogin} className="bg-white rounded-2xl shadow-2xl p-8">
