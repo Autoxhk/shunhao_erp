@@ -8,6 +8,10 @@ __pycache__/
 # Database (regenerated from uploaded data)
 orders.db
 
+# Auth credentials — never commit
+auth.json
+AUTH_CODE.txt
+
 # Source data files (uploaded by user, not versioned)
 *.xlsx
 到货文件/

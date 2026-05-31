@@ -1,9 +1,14 @@
+import hashlib
+import hmac
 import json
 import re
 import math
+import secrets
+import time
 import zipfile
 from copy import copy
 from collections import Counter, defaultdict
+from functools import wraps
 from io import BytesIO
 from pathlib import Path
 
@@ -18,9 +23,85 @@ from sqlalchemy import and_, func, or_
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "orders.db"
 SOURCE_FILE = BASE_DIR / "isuzu_data.xlsx"
+AUTH_FILE = BASE_DIR / "auth.json"
 ARRIVAL_DIR = BASE_DIR / "到货文件"
 ARRIVAL_COLUMNS = ["合同号", "序号", "零件号", "互换零件号", "零件名", "个数", "单价", "总价"]
 ARRIVAL_MATCH_CACHE = {"signature": None, "index": defaultdict(list)}
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+_AUTH_CONFIG: dict = {}
+_SESSIONS: dict = {}          # {token: expiry_unix_timestamp}
+_FAILED_ATTEMPTS: dict = {}   # {ip: [timestamp, ...]}
+
+
+def _setup_auth() -> None:
+    global _AUTH_CONFIG
+    if AUTH_FILE.exists():
+        with open(AUTH_FILE) as f:
+            _AUTH_CONFIG = json.load(f)
+        return
+
+    code = secrets.token_hex(16)          # 32 hex characters
+    salt = secrets.token_hex(16)
+    iterations = 600_000
+    code_hash = hashlib.pbkdf2_hmac(
+        "sha256", code.encode(), salt.encode(), iterations
+    ).hex()
+    _AUTH_CONFIG = {"code_hash": code_hash, "salt": salt, "iterations": iterations}
+    with open(AUTH_FILE, "w") as f:
+        json.dump(_AUTH_CONFIG, f)
+
+    code_file = BASE_DIR / "AUTH_CODE.txt"
+    with open(code_file, "w") as f:
+        f.write(f"登录码: {code}\n请妥善保管，不要上传到 GitHub。\n")
+
+    border = "=" * 54
+    print(f"\n{border}")
+    print(f"  首次启动，已生成 32 位登录码：")
+    print(f"  {code}")
+    print(f"  已同步写入 AUTH_CODE.txt（请勿提交到 Git）")
+    print(f"{border}\n")
+
+
+def _verify_code(code: str) -> bool:
+    try:
+        cfg = _AUTH_CONFIG
+        expected = bytes.fromhex(cfg["code_hash"])
+        computed = hashlib.pbkdf2_hmac(
+            "sha256", code.encode(), cfg["salt"].encode(), cfg["iterations"]
+        )
+        return hmac.compare_digest(expected, computed)
+    except Exception:
+        return False
+
+
+def _is_rate_limited(ip: str) -> bool:
+    cutoff = time.time() - 900          # 15-minute window
+    attempts = [t for t in _FAILED_ATTEMPTS.get(ip, []) if t > cutoff]
+    _FAILED_ATTEMPTS[ip] = attempts
+    return len(attempts) >= 5
+
+
+def _record_failed(ip: str) -> None:
+    _FAILED_ATTEMPTS.setdefault(ip, []).append(time.time())
+
+
+def _is_valid_session(token: str) -> bool:
+    expiry = _SESSIONS.get(token)
+    if expiry is None:
+        return False
+    if time.time() > expiry:
+        _SESSIONS.pop(token, None)
+        return False
+    return True
+
+
+def _clean_sessions() -> None:
+    now = time.time()
+    expired = [t for t, exp in list(_SESSIONS.items()) if now > exp]
+    for t in expired:
+        _SESSIONS.pop(t, None)
+# ── End Auth ──────────────────────────────────────────────────────────────────
 
 
 db = SQLAlchemy()
@@ -1797,6 +1878,7 @@ def create_app():
 
     CORS(app)
     db.init_app(app)
+    _setup_auth()
 
     with app.app_context():
         db.create_all()
@@ -1808,6 +1890,45 @@ def create_app():
             rebuild_all_summaries()
         elif db.session.get(CacheStore, "arrival_analysis") is None:
             rebuild_arrival_analysis_cache()
+
+    # ── Auth middleware ────────────────────────────────────────────────────────
+    _PUBLIC_PATHS = {"/api/health", "/api/login", "/api/logout"}
+
+    @app.before_request
+    def check_auth():
+        if request.path in _PUBLIC_PATHS or not request.path.startswith("/api/"):
+            return None
+        raw = request.headers.get("Authorization", "")
+        token = raw[7:] if raw.startswith("Bearer ") else raw
+        if not token or not _is_valid_session(token):
+            return jsonify({"message": "未授权，请重新登录"}), 401
+
+    @app.post("/api/login")
+    def login():
+        data = request.get_json(silent=True) or {}
+        code = str(data.get("code", "")).strip()
+        ip = request.remote_addr or "unknown"
+
+        if _is_rate_limited(ip):
+            return jsonify({"message": "登录尝试过于频繁，请 15 分钟后再试"}), 429
+
+        if not _verify_code(code):
+            _record_failed(ip)
+            remaining = 5 - len(_FAILED_ATTEMPTS.get(ip, []))
+            return jsonify({"message": f"登录码错误，还有 {max(remaining, 0)} 次机会"}), 401
+
+        token = secrets.token_hex(32)           # 64-char session token
+        _SESSIONS[token] = time.time() + 86400  # 24-hour session
+        _clean_sessions()
+        return jsonify({"token": token})
+
+    @app.post("/api/logout")
+    def logout():
+        raw = request.headers.get("Authorization", "")
+        token = raw[7:] if raw.startswith("Bearer ") else raw
+        _SESSIONS.pop(token, None)
+        return jsonify({"message": "已退出登录"})
+    # ── End Auth middleware ────────────────────────────────────────────────────
 
     @app.get("/api/health")
     def health():
@@ -3020,4 +3141,4 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    app.run(host="0.0.0.0", port=5001, debug=False)

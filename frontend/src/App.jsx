@@ -1,5 +1,28 @@
 import { useEffect, useMemo, useState } from 'react'
 
+// ── Authenticated fetch ───────────────────────────────────────────────────────
+function getAuthToken() {
+  return localStorage.getItem('authToken')
+}
+
+async function apiFetch(url, options = {}) {
+  const token = getAuthToken()
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  })
+  if (res.status === 401 && !url.includes('/api/login')) {
+    localStorage.removeItem('authToken')
+    window.location.reload()
+    throw new Error('Unauthorized')
+  }
+  return res
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 const emptyStats = {
   totalOrders: 0,
   totalCustomers: 0,
@@ -81,6 +104,46 @@ function formatYoYChange(current, previous) {
 }
 
 export default function App() {
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem('authToken'))
+  const [loginCode, setLoginCode] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [loginLoading, setLoginLoading] = useState(false)
+
+  async function handleLogin(e) {
+    e.preventDefault()
+    if (!loginCode.trim()) return
+    setLoginLoading(true)
+    setLoginError('')
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: loginCode.trim() }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        localStorage.setItem('authToken', data.token)
+        setAuthToken(data.token)
+        setLoginCode('')
+      } else {
+        setLoginError(data.message || '登录码错误')
+      }
+    } catch {
+      setLoginError('网络错误，请重试')
+    } finally {
+      setLoginLoading(false)
+    }
+  }
+
+  function handleLogout() {
+    const token = getAuthToken()
+    if (token) apiFetch('/api/logout', { method: 'POST' }).catch(() => {})
+    localStorage.removeItem('authToken')
+    setAuthToken(null)
+    setLoginCode('')
+    setLoginError('')
+  }
+
   const [activeView, setActiveView] = useState('dashboard')
   const [stats, setStats] = useState(emptyStats)
   const [orders, setOrders] = useState([])
@@ -169,8 +232,8 @@ export default function App() {
     setDashboardLoading(true)
     try {
       const [statsRes, ordersRes] = await Promise.all([
-        fetch('/api/stats'),
-        fetch(`/api/orders?${queryString}`),
+        apiFetch('/api/stats'),
+        apiFetch(`/api/orders?${queryString}`),
       ])
       const statsJson = await statsRes.json()
       const ordersJson = await ordersRes.json()
@@ -187,7 +250,7 @@ export default function App() {
       const params = new URLSearchParams({ pageSize: '25', page: String(contractPage) })
       if (contractSearch) params.set('search', contractSearch)
       if (contractYearFilter) params.set('year', contractYearFilter)
-      const response = await fetch(`/api/contracts?${params.toString()}`)
+      const response = await apiFetch(`/api/contracts?${params.toString()}`)
       const json = await response.json()
       setContracts(json.items || [])
       setAvailableContractYears(json.availableYears || [])
@@ -206,7 +269,7 @@ export default function App() {
     try {
       const params = new URLSearchParams({ pageSize: '25', page: String(customerPage) })
       if (customerSearch) params.set('search', customerSearch)
-      const response = await fetch(`/api/customers?${params.toString()}`)
+      const response = await apiFetch(`/api/customers?${params.toString()}`)
       const json = await response.json()
       setCustomers(json.items || [])
       setCustomerMeta({
@@ -224,7 +287,7 @@ export default function App() {
     try {
       const params = new URLSearchParams({ pageSize: '25', page: String(partPage) })
       if (partSearch) params.set('search', partSearch)
-      const response = await fetch(`/api/parts?${params.toString()}`)
+      const response = await apiFetch(`/api/parts?${params.toString()}`)
       const json = await response.json()
       setParts(json.items || [])
       setPartMeta({
@@ -313,7 +376,7 @@ export default function App() {
 
   async function handleSync() {
     setSyncing(true)
-    await fetch('/api/sync', { method: 'POST' })
+    await apiFetch('/api/sync', { method: 'POST' })
     await Promise.all([loadDashboard(), loadContracts(), loadCustomers(), loadParts(), loadArrivalAnalysis(), loadDbCheck()])
     setSyncing(false)
   }
@@ -321,7 +384,7 @@ export default function App() {
   async function loadArrivalAnalysis() {
     setArrivalLoading(true)
     try {
-      const response = await fetch(`/api/arrival-analysis?_t=${Date.now()}`)
+      const response = await apiFetch(`/api/arrival-analysis?_t=${Date.now()}`)
       const json = await response.json()
       if (!response.ok) {
         throw new Error(json.message || '到货检查失败')
@@ -343,7 +406,7 @@ export default function App() {
   async function loadDbCheck() {
     setDbCheckLoading(true)
     try {
-      const response = await fetch(`/api/db-check?_t=${Date.now()}`)
+      const response = await apiFetch(`/api/db-check?_t=${Date.now()}`)
       const json = await response.json()
       if (!response.ok) {
         throw new Error(json.message || '数据库检查失败')
@@ -382,7 +445,7 @@ export default function App() {
     const optionsState = type === 'order' ? dbOrderFilterOptions : dbArrivalFilterOptions
     if (optionsState[field]) return
     const params = new URLSearchParams({ type, field })
-    const res = await fetch(`/api/db-filter-options?${params.toString()}`)
+    const res = await apiFetch(`/api/db-filter-options?${params.toString()}`)
     const json = await res.json()
     const values = json.items || []
     if (type === 'order') {
@@ -510,7 +573,7 @@ export default function App() {
       const conditions = normalizeDbConditions(conditionsOverride)
       if (searchLevels.length) params.set('searches', JSON.stringify(searchLevels))
       if (conditions.length) params.set('conditions', JSON.stringify(conditions))
-      const res = await fetch(`/api/db-orders?${params}`)
+      const res = await apiFetch(`/api/db-orders?${params}`)
       const json = await res.json()
       setDbOrderRows(json.items || [])
       setDbOrderMeta({ total: json.total || 0, page: json.page || 1, pageSize: json.pageSize || 30 })
@@ -527,7 +590,7 @@ export default function App() {
       const conditions = normalizeDbConditions(conditionsOverride)
       if (searchLevels.length) params.set('searches', JSON.stringify(searchLevels))
       if (conditions.length) params.set('conditions', JSON.stringify(conditions))
-      const res = await fetch(`/api/db-arrivals?${params}`)
+      const res = await apiFetch(`/api/db-arrivals?${params}`)
       const json = await res.json()
       setDbArrivalRows(json.items || [])
       setDbArrivalMeta({ total: json.total || 0, page: json.page || 1, pageSize: json.pageSize || 30 })
@@ -604,7 +667,7 @@ export default function App() {
     try {
       const params = new URLSearchParams({ sourceFile })
       params.set('_t', String(Date.now()))
-      const response = await fetch(`/api/arrival-file-detail?${params.toString()}`)
+      const response = await apiFetch(`/api/arrival-file-detail?${params.toString()}`)
       const json = await response.json()
       if (!response.ok) throw new Error(json.message || '加载到货文件详情失败')
       setSelectedArrivalFileDetail(json)
@@ -638,7 +701,7 @@ export default function App() {
         contractNo: contract.contractNo || '',
         customerCode: contract.customerCode || '',
       })
-      const response = await fetch(`/api/contract-items?${params.toString()}`)
+      const response = await apiFetch(`/api/contract-items?${params.toString()}`)
       const json = await response.json()
       setContractDetailItems(json.items || [])
     } finally {
@@ -662,7 +725,7 @@ export default function App() {
       const params = new URLSearchParams({
         customerCode: customer.customerCode || '',
       })
-      const response = await fetch(`/api/customer-analysis?${params.toString()}`)
+      const response = await apiFetch(`/api/customer-analysis?${params.toString()}`)
       const json = await response.json()
       setCustomerAnalysis(json)
       setSelectedCustomerYear(null)
@@ -689,7 +752,7 @@ export default function App() {
         partNo: part.partNo || '',
         interchangePartNo: part.interchangePartNo || '',
       })
-      const response = await fetch(`/api/part-analysis?${params.toString()}`)
+      const response = await apiFetch(`/api/part-analysis?${params.toString()}`)
       const json = await response.json()
       setPartAnalysis(json)
       setSelectedPartYear(null)
@@ -1596,7 +1659,7 @@ export default function App() {
       try {
         const form = new FormData()
         form.append('file', uploadOrderFile)
-        const res = await fetch('/api/upload-orders', { method: 'POST', body: form })
+        const res = await apiFetch('/api/upload-orders', { method: 'POST', body: form })
         const json = await res.json()
         if (!res.ok) throw new Error(json.message || '上传失败')
         setUploadOrderStatus({ ok: true, message: `导入成功：${json.imported} 条记录`, detail: json })
@@ -1616,7 +1679,7 @@ export default function App() {
       try {
         const form = new FormData()
         uploadArrivalFiles.forEach((f) => form.append('files', f))
-        const res = await fetch('/api/upload-arrivals', { method: 'POST', body: form })
+        const res = await apiFetch('/api/upload-arrivals', { method: 'POST', body: form })
         const json = await res.json()
         if (!res.ok) throw new Error(json.message || '上传失败')
         const savedCount = (json.savedFiles || []).length
@@ -2500,6 +2563,49 @@ export default function App() {
 
   const viewMeta = navItems.find((item) => item.key === activeView)
 
+  if (!authToken) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 mb-4">
+              <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-bold text-white">顺昊 ERP</h1>
+            <p className="text-slate-400 text-sm mt-1">请输入访问码登录</p>
+          </div>
+          <form onSubmit={handleLogin} className="bg-white rounded-2xl shadow-2xl p-8">
+            <div className="mb-5">
+              <label className="block text-sm font-medium text-slate-700 mb-2">访问码</label>
+              <input
+                type="password"
+                value={loginCode}
+                onChange={(e) => { setLoginCode(e.target.value); setLoginError('') }}
+                placeholder="请输入 32 位访问码"
+                autoComplete="current-password"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono text-sm tracking-widest"
+              />
+            </div>
+            {loginError && (
+              <div className="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm">
+                {loginError}
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={loginLoading || !loginCode.trim()}
+              className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold transition-colors"
+            >
+              {loginLoading ? '验证中...' : '登录'}
+            </button>
+          </form>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800">
       <div className="flex min-h-screen">
@@ -2525,6 +2631,14 @@ export default function App() {
               </button>
             ))}
           </nav>
+          <div className="border-t border-slate-800 px-4 py-4">
+            <button
+              onClick={handleLogout}
+              className="w-full rounded-2xl px-4 py-3 text-left text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition"
+            >
+              <div className="font-semibold text-sm">退出登录</div>
+            </button>
+          </div>
         </aside>
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
