@@ -75,6 +75,8 @@ const moneyFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
+const contractStatusOrder = ['completed', 'pending', 'abnormal']
+
 function formatNumber(value) {
   if (value === null || value === undefined || value === '') return '-'
   return numberFormatter.format(Number(value))
@@ -101,6 +103,15 @@ function formatYoYChange(current, previous) {
   if (!prev) return '—'
   const rate = ((Number(current || 0) - prev) / prev) * 100
   return `${rate >= 0 ? '+' : ''}${rate.toFixed(1)}%`
+}
+
+function getContractItemStatus(item) {
+  const quantity = Number(item?.quantity || 0)
+  const arrivalQuantity = Number(item?.arrivalQuantity || 0)
+
+  if (arrivalQuantity > quantity) return 'abnormal'
+  if (arrivalQuantity === quantity) return 'completed'
+  return 'pending'
 }
 
 export default function App() {
@@ -181,6 +192,7 @@ export default function App() {
   const [selectedContract, setSelectedContract] = useState(null)
   const [contractDetailItems, setContractDetailItems] = useState([])
   const [contractDetailLoading, setContractDetailLoading] = useState(false)
+  const [contractDetailStatusFilters, setContractDetailStatusFilters] = useState(contractStatusOrder)
   const [selectedCustomer, setSelectedCustomer] = useState(null)
   const [customerAnalysis, setCustomerAnalysis] = useState(null)
   const [customerAnalysisLoading, setCustomerAnalysisLoading] = useState(false)
@@ -717,6 +729,7 @@ export default function App() {
   async function openContractDetail(contract) {
     setSelectedContract(contract)
     setContractDetailItems([])
+    setContractDetailStatusFilters(contractStatusOrder)
     setContractDetailLoading(true)
 
     try {
@@ -736,6 +749,16 @@ export default function App() {
     setSelectedContract(null)
     setContractDetailItems([])
     setContractDetailLoading(false)
+    setContractDetailStatusFilters(contractStatusOrder)
+  }
+
+  function toggleContractDetailStatus(status) {
+    setContractDetailStatusFilters((prev) => {
+      if (prev.includes(status)) {
+        return prev.filter((item) => item !== status)
+      }
+      return [...prev, status]
+    })
   }
 
   async function openCustomerAnalysis(customer) {
@@ -1055,6 +1078,25 @@ export default function App() {
   function renderContractDetailModal() {
     if (!selectedContract) return null
 
+    const tabLabels = {
+      abnormal: '异常',
+      completed: '完成',
+      pending: '未完成',
+    }
+
+    const tabCounts = {
+      abnormal: contractDetailItems.filter((item) => getContractItemStatus(item) === 'abnormal').length,
+      completed: contractDetailItems.filter((item) => getContractItemStatus(item) === 'completed').length,
+      pending: contractDetailItems.filter((item) => getContractItemStatus(item) === 'pending').length,
+    }
+
+    const contractTotalCount = tabCounts.completed + tabCounts.pending + tabCounts.abnormal
+
+    const displayContractItems = contractDetailItems.filter((item) => {
+      const status = getContractItemStatus(item)
+      return contractDetailStatusFilters.includes(status)
+    })
+
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
         <div className="w-full max-w-6xl overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -1062,7 +1104,7 @@ export default function App() {
             <div>
               <h3 className="text-xl font-semibold text-slate-900">合同详情</h3>
               <p className="mt-1 text-sm text-slate-500">
-                合同号：{selectedContract.contractNo || '-'} ｜ 客户：{selectedContract.customerCode || '-'} ｜ 共 {formatNumber(contractDetailItems.length)} 条
+                合同号：{selectedContract.contractNo || '-'} ｜ 客户：{selectedContract.customerCode || '-'} ｜ 总条目：{formatNumber(contractTotalCount)} ｜ 已显示：{formatNumber(displayContractItems.length)}
               </p>
             </div>
             <button
@@ -1071,6 +1113,26 @@ export default function App() {
             >
               关闭
             </button>
+          </div>
+
+          <div className="border-b border-slate-200 px-5 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-slate-500">筛选：</span>
+              {contractStatusOrder.map((tab) => {
+                const active = contractDetailStatusFilters.includes(tab)
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => toggleContractDetailStatus(tab)}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                      active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                    }`}
+                  >
+                    {tabLabels[tab]}（{formatNumber(tabCounts[tab])}）
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           {contractDetailLoading ? (
@@ -1092,11 +1154,14 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {contractDetailItems.map((item, index) => {
-                    const isOverArrived = Number(item.arrivalQuantity || 0) > Number(item.quantity || 0)
+                  {displayContractItems.map((item, index) => {
+                    const status = getContractItemStatus(item)
+                    const isOverArrived = status === 'abnormal'
+                    const isCompleted = status === 'completed'
+                    const isPending = status === 'pending'
 
                     return (
-                      <tr key={`${item.id}-${index}`} className={isOverArrived ? 'bg-rose-50/40 hover:bg-rose-50/60' : 'hover:bg-slate-50'}>
+                      <tr key={`${item.id}-${index}`} className={isOverArrived ? 'bg-rose-50/40 hover:bg-rose-50/60' : isCompleted ? 'bg-emerald-50/30 hover:bg-emerald-50/50' : isPending ? 'bg-amber-50/20 hover:bg-amber-50/40' : 'hover:bg-slate-50'}>
                         <td className="px-4 py-3">{item.sequence || index + 1}</td>
                         <td className="px-4 py-3">{formatPartCode(item.partNo)}</td>
                         <td className="px-4 py-3">{formatPartCode(item.interchangePartNo)}</td>
@@ -1110,6 +1175,16 @@ export default function App() {
                             {isOverArrived && (
                               <span className="inline-block rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700">
                                 错误
+                              </span>
+                            )}
+                            {isCompleted && (
+                              <span className="inline-block rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                                完成
+                              </span>
+                            )}
+                            {isPending && (
+                              <span className="inline-block rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                                未完成
                               </span>
                             )}
                           </div>
@@ -1132,8 +1207,10 @@ export default function App() {
                   })}
                 </tbody>
               </table>
-              {!contractDetailItems.length && (
-                <div className="px-5 py-8 text-sm text-slate-500">该合同暂无详细条目。</div>
+              {!displayContractItems.length && (
+                <div className="px-5 py-8 text-sm text-slate-500">
+                  {contractDetailItems.length ? '当前筛选下暂无条目。' : '该合同暂无详细条目。'}
+                </div>
               )}
             </div>
           )}

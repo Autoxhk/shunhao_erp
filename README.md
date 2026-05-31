@@ -122,6 +122,20 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
+如果你希望一键执行「commit + push + 部署」：
+
+```bash
+cd /home/ubuntu/shunhao_erp
+./deploy.sh --auto-commit --auto-push --message "your commit message"
+```
+
+如果你希望服务器直接重置到远端最新主分支（会丢弃本地已跟踪改动）：
+
+```bash
+cd /home/ubuntu/shunhao_erp
+./deploy.sh --hard-sync
+```
+
 这个脚本会自动完成以下动作：
 - 检查是否存在未提交的已跟踪改动
 - `git fetch origin`
@@ -131,6 +145,7 @@ chmod +x deploy.sh
 - 重载 `nginx`
 - 检查后端健康接口和 HTTPS 响应
 - 如果后端刚重启时还没监听端口，脚本会自动重试几次再判定失败
+- 支持 `--auto-commit` / `--auto-push` / `--hard-sync` 参数
 
 ## 注意事项
 - 不要再用 `python app.py` 或 `npm run dev` 作为线上重启方式。

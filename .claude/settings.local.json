@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sqlite3 orders.db ' *)",
+      "Bash(sqlite3 /Users/yanbinz/Desktop/adv_generator/orders.db ' *)"
+    ]
+  }
+}

@@ -6,6 +6,10 @@ ROOT_DIR="/home/ubuntu/shunhao_erp"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 BACKEND_SERVICE="shunhao-erp-backend.service"
 HOST_HEADER="data.shunhaoparts.com"
+AUTO_COMMIT=0
+AUTO_PUSH=0
+HARD_SYNC=0
+COMMIT_MESSAGE="chore: server deploy auto commit"
 
 log() {
   printf '[deploy] %s\n' "$1"
@@ -14,6 +18,19 @@ log() {
 fail() {
   printf '[deploy] ERROR: %s\n' "$1" >&2
   exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: ./deploy.sh [options]
+
+Options:
+  --auto-commit          Auto commit local changes before deployment.
+  --auto-push            Push main to origin after commit/check.
+  --hard-sync            Discard local tracked changes and hard reset to origin/main.
+  --message <msg>        Commit message used with --auto-commit.
+  --help                 Show this help message.
+EOF
 }
 
 retry() {
@@ -43,17 +60,83 @@ require_clean_tracked_files() {
   fi
 }
 
+auto_commit_if_needed() {
+  local status
+  status="$(git status --porcelain)"
+  if [[ -z "$status" ]]; then
+    log 'No local changes to commit'
+    return 0
+  fi
+
+  log 'Auto committing local changes'
+  git add -A
+  if git diff --cached --quiet; then
+    log 'No staged changes after git add'
+    return 0
+  fi
+  git commit -m "$COMMIT_MESSAGE"
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --auto-commit)
+        AUTO_COMMIT=1
+        shift
+        ;;
+      --auto-push)
+        AUTO_PUSH=1
+        shift
+        ;;
+      --hard-sync)
+        HARD_SYNC=1
+        shift
+        ;;
+      --message)
+        shift
+        [[ $# -gt 0 ]] || fail 'Missing value for --message'
+        COMMIT_MESSAGE="$1"
+        shift
+        ;;
+      --help|-h)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "Unknown option: $1"
+        ;;
+    esac
+  done
+}
+
 main() {
+  parse_args "$@"
+
   cd "$ROOT_DIR"
 
-  log 'Checking tracked local changes'
-  require_clean_tracked_files
+  if [[ "$HARD_SYNC" -eq 1 ]]; then
+    log 'Hard syncing repository to origin/main (discard tracked local changes)'
+    git fetch origin
+    git reset --hard origin/main
+  else
+    if [[ "$AUTO_COMMIT" -eq 1 ]]; then
+      auto_commit_if_needed
+    else
+      log 'Checking tracked local changes'
+      require_clean_tracked_files
+    fi
 
-  log 'Fetching latest code'
-  git fetch origin
+    if [[ "$AUTO_PUSH" -eq 1 ]]; then
+      log 'Pushing main to origin'
+      git push origin main
+    fi
 
-  log 'Pulling origin/main'
-  git pull --ff-only origin main
+    log 'Fetching latest code'
+    git fetch origin
+
+    log 'Pulling origin/main'
+    git pull --ff-only origin main
+  fi
 
   log 'Installing frontend dependencies'
   cd "$FRONTEND_DIR"
