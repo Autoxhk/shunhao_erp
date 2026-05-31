@@ -1,0 +1,29 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Database (regenerated from uploaded data)
+orders.db
+
+# Source data files (uploaded by user, not versioned)
+*.xlsx
+到货文件/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Claude session files
+.claude/projects/
