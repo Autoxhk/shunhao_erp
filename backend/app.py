@@ -2262,6 +2262,159 @@ def create_app():
             }
         )
 
+    @app.get("/api/dashboard")
+    def dashboard_stats():
+        year = request.args.get("year", "").strip()
+        if not re.fullmatch(r"\d{4}", year):
+            year = str(time.localtime().tm_year)
+
+        def _extract_arrival_year(*values):
+            for value in values:
+                text = clean_text(value)
+                if not text:
+                    continue
+
+                if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+                    return text[:4]
+
+                m8 = re.search(r"(\d{8})", text)
+                if m8:
+                    return m8.group(1)[:4]
+
+                m6 = re.search(r"(\d{6})", text)
+                if m6:
+                    return f"20{m6.group(1)[:2]}"
+            return None
+
+        contract_rows = (
+            ContractSummary.query
+            .filter(ContractSummary.order_year == year)
+            .order_by(ContractSummary.order_date.desc(), ContractSummary.total_amount.desc())
+            .limit(8)
+            .all()
+        )
+        latest_contracts = [
+            {
+                "contractNo": row.contract_no,
+                "customerCode": row.customer_code,
+                "totalAmount": row.total_amount,
+                "arrivalStatus": "异常" if (row.arrival_ratio or 0) > 100 else (row.arrival_status or "未到货"),
+            }
+            for row in contract_rows
+        ]
+
+        customer_rows = (
+            db.session.query(
+                ContractSummary.customer_code.label("customer_code"),
+                func.count(ContractSummary.id).label("contract_count"),
+                func.sum(ContractSummary.part_item_count).label("order_count"),
+                func.sum(ContractSummary.total_amount).label("total_amount"),
+            )
+            .filter(ContractSummary.order_year == year)
+            .group_by(ContractSummary.customer_code)
+            .order_by(func.sum(ContractSummary.total_amount).desc())
+            .limit(8)
+            .all()
+        )
+        top_customers = [
+            {
+                "customerCode": row.customer_code,
+                "contractCount": int(row.contract_count or 0),
+                "orderCount": int(row.order_count or 0),
+                "totalAmount": round(float(row.total_amount or 0), 2),
+            }
+            for row in customer_rows
+        ]
+
+        arrival_rows = db.session.query(ArrivalOrder.arrival_date, ArrivalOrder.source_file).all()
+        total_arrival_rows = 0
+        source_files = set()
+        for arrival_date, source_file in arrival_rows:
+            if _extract_arrival_year(arrival_date, source_file) != year:
+                continue
+            total_arrival_rows += 1
+            file_text = clean_text(source_file)
+            if file_text:
+                source_files.add(file_text)
+
+        analysis = _get_arrival_analysis_result()
+        checks = analysis.get("checks", []) if isinstance(analysis, dict) else []
+        yearly_checks = [
+            item
+            for item in checks
+            if _extract_arrival_year(item.get("arrivalDate"), item.get("sourceFile")) == year
+        ]
+        checked_rows = len(yearly_checks)
+        error_rows = sum(1 for item in yearly_checks if item.get("checkResult") == "有错误")
+        arrival_summary = {
+            "totalFiles": len(source_files),
+            "totalRows": total_arrival_rows,
+            "errorRows": error_rows,
+            "errorRate": round((error_rows / checked_rows) * 100, 2) if checked_rows else 0,
+        }
+
+        order_rows = (
+            db.session.query(
+                Order.contract_no,
+                Order.part_no,
+                Order.interchange_part_no,
+                Order.part_name,
+                Order.total_price,
+            )
+            .filter(Order.contract_no.isnot(None))
+            .all()
+        )
+        part_map = {}
+        yearly_total_amount = 0.0
+        for contract_no, part_no, interchange_part_no, part_name, total_price in order_rows:
+            if get_contract_year(contract_no) != year:
+                continue
+
+            amount = float(total_price or 0)
+            yearly_total_amount += amount
+            key = (
+                normalize_part_code(part_no) or "",
+                normalize_part_code(interchange_part_no) or "",
+                clean_text(part_name) or "",
+            )
+            item = part_map.setdefault(
+                key,
+                {
+                    "partNo": normalize_part_code(part_no),
+                    "interchangePartNo": normalize_part_code(interchange_part_no),
+                    "partName": clean_text(part_name),
+                    "totalAmount": 0.0,
+                },
+            )
+            item["totalAmount"] += amount
+
+        top_parts = []
+        for item in part_map.values():
+            amount = float(item.get("totalAmount") or 0)
+            ratio = (amount / yearly_total_amount * 100) if yearly_total_amount > 0 else 0
+            top_parts.append(
+                {
+                    "partNo": item.get("partNo"),
+                    "interchangePartNo": item.get("interchangePartNo"),
+                    "partName": item.get("partName"),
+                    "totalAmount": round(amount, 2),
+                    "ratio": round(ratio, 2),
+                }
+            )
+        top_parts.sort(key=lambda x: float(x.get("totalAmount") or 0), reverse=True)
+
+        return jsonify(
+            safe_json_value(
+                {
+                    "year": year,
+                    "latestContracts": latest_contracts,
+                    "topCustomers": top_customers,
+                    "arrivalSummary": arrival_summary,
+                    "topParts": top_parts[:8],
+                }
+            )
+        )
+
     @app.get("/api/db-check")
     def db_check():
         order_total = db.session.query(func.count(Order.id)).scalar() or 0

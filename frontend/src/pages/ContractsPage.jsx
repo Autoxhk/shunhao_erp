@@ -39,7 +39,7 @@ export default function ContractsPage({ ctx }) {
     <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
       <div className="border-b border-slate-200 px-5 py-4">
         <div className="flex flex-col gap-3">
-          <div>
+          <div className="flex flex-wrap items-end gap-2">
             <h2 className="text-lg font-semibold">合同信息</h2>
             <p className="text-sm text-slate-500">按合同查看零件总个数、到货情况和合同总金额，并可按年份筛选。</p>
           </div>
@@ -97,9 +97,6 @@ export default function ContractsPage({ ctx }) {
               })}
             </div>
           )}
-          <div className="text-xs text-slate-500">
-            排序规则：下单年份从大到小，若同年则按下单日期从大到小。
-          </div>
         </div>
       </div>
 

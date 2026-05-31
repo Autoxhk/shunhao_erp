@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 export default function DashboardPage({ ctx }) {
   const { statCards, stats, formatMoney, formatNumber, formatPartCode, apiFetch } = ctx
@@ -14,26 +14,15 @@ export default function DashboardPage({ ctx }) {
 
     async function loadDashboardBlocks() {
       try {
-        const [contractsRes, customersRes, arrivalRes, partsRes] = await Promise.all([
-          apiFetch(`/api/contracts?year=${currentYear}&page=1&pageSize=8`),
-          apiFetch('/api/customers?page=1&pageSize=8'),
-          apiFetch('/api/arrival-analysis'),
-          apiFetch('/api/parts?page=1&pageSize=8'),
-        ])
-
-        const [contractsJson, customersJson, arrivalJson, partsJson] = await Promise.all([
-          contractsRes.json(),
-          customersRes.json(),
-          arrivalRes.json(),
-          partsRes.json(),
-        ])
+        const dashboardRes = await apiFetch(`/api/dashboard?year=${currentYear}`)
+        const dashboardJson = await dashboardRes.json()
 
         if (cancelled) return
 
-        setLatestContracts(contractsJson.items || [])
-        setTopCustomers(customersJson.items || [])
-        setArrivalSummary(arrivalJson.summary || null)
-        setTopParts(partsJson.items || [])
+        setLatestContracts(dashboardJson.latestContracts || [])
+        setTopCustomers(dashboardJson.topCustomers || [])
+        setArrivalSummary(dashboardJson.arrivalSummary || null)
+        setTopParts(dashboardJson.topParts || [])
       } catch {
         if (cancelled) return
         setLatestContracts([])
@@ -48,19 +37,6 @@ export default function DashboardPage({ ctx }) {
       cancelled = true
     }
   }, [apiFetch, currentYear])
-
-  const totalAmountBase = Number(stats?.totalAmount || 0)
-
-  const topPartsWithRatio = useMemo(() => {
-    return topParts.map((item) => {
-      const amount = Number(item?.totalAmount || 0)
-      const ratio = totalAmountBase > 0 ? (amount / totalAmountBase) * 100 : 0
-      return {
-        ...item,
-        ratio,
-      }
-    })
-  }, [topParts, totalAmountBase])
 
   return (
     <div className="space-y-4">
@@ -107,7 +83,7 @@ export default function DashboardPage({ ctx }) {
 
         <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
           <div className="border-b border-slate-200 px-5 py-4">
-            <h3 className="text-base font-semibold">客户信息统计（前8）</h3>
+            <h3 className="text-base font-semibold">{currentYear}年客户信息统计（前8）</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -137,7 +113,7 @@ export default function DashboardPage({ ctx }) {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-          <h3 className="text-base font-semibold">到货统计</h3>
+          <h3 className="text-base font-semibold">{currentYear}年到货统计</h3>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl bg-slate-50 p-3 text-sm"><div className="text-slate-500">到货文件数</div><div className="mt-1 text-lg font-semibold">{formatNumber(arrivalSummary?.totalFiles)}</div></div>
             <div className="rounded-xl bg-slate-50 p-3 text-sm"><div className="text-slate-500">总到货行数</div><div className="mt-1 text-lg font-semibold">{formatNumber(arrivalSummary?.totalRows)}</div></div>
@@ -148,7 +124,7 @@ export default function DashboardPage({ ctx }) {
 
         <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
           <div className="border-b border-slate-200 px-5 py-4">
-            <h3 className="text-base font-semibold">下单占比较高的零件（前8）</h3>
+            <h3 className="text-base font-semibold">{currentYear}年下单占比较高的零件（前8）</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -161,17 +137,17 @@ export default function DashboardPage({ ctx }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {topPartsWithRatio.map((item, index) => (
+                {topParts.map((item, index) => (
                   <tr key={`${item.partNo || 'na'}-${index}`}>
                     <td className="px-4 py-3 font-medium">{formatPartCode(item.partNo)}</td>
                     <td className="px-4 py-3">{item.partName || '-'}</td>
                     <td className="px-4 py-3">{formatMoney(item.totalAmount)}</td>
-                    <td className="px-4 py-3">{item.ratio.toFixed(2)}%</td>
+                    <td className="px-4 py-3">{Number(item.ratio || 0).toFixed(2)}%</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {!topPartsWithRatio.length && <div className="px-5 py-8 text-sm text-slate-500">暂无零件统计数据。</div>}
+            {!topParts.length && <div className="px-5 py-8 text-sm text-slate-500">暂无零件统计数据。</div>}
           </div>
         </div>
       </div>
