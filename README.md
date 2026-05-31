@@ -130,6 +130,7 @@ chmod +x deploy.sh
 - 重启 `shunhao-erp-backend.service`
 - 重载 `nginx`
 - 检查后端健康接口和 HTTPS 响应
+- 如果后端刚重启时还没监听端口，脚本会自动重试几次再判定失败
 
 ## 注意事项
 - 不要再用 `python app.py` 或 `npm run dev` 作为线上重启方式。
